@@ -171,17 +171,32 @@ class MultiScaleRetention(nn.Module):
         chunkwise_recurrent=False,
         incremental_state=None
     ):
-        bsz, tgt_len, _ = x.size()
+        return self._forward(x, x, x, rel_pos, chunkwise_recurrent, incremental_state)
+    
+    def _forward(
+        self,
+        query,
+        key,
+        value,
+        rel_pos,
+        chunkwise_recurrent=False,
+        incremental_state=None
+    ):
+        bsz, tgt_len, _ = query.size()
+        src_len = tgt_len
         (sin, cos), inner_mask = rel_pos
 
-        q = self.q_proj(x)
-        k = self.k_proj(x)
-        v = self.v_proj(x)
-        g = self.g_proj(x)
+        key_bsz, src_len, _ = key.size()
+        assert key_bsz == bsz, f"{query.size(), key.size()}"
+
+        q = self.q_proj(query)
+        k = self.k_proj(key)
+        v = self.v_proj(value)
+        g = self.g_proj(query)
 
         k *= self.scaling
         q = q.view(bsz, tgt_len, self.num_heads, self.key_dim).transpose(1, 2)
-        k = k.view(bsz, tgt_len, self.num_heads, self.key_dim).transpose(1, 2)
+        k = k.view(bsz, src_len, self.num_heads, self.key_dim).transpose(1, 2)
 
         qr = theta_shift(q, sin, cos)
         kr = theta_shift(k, sin, cos)

@@ -137,6 +137,12 @@ class DecoderConfig(object):
 
 class EncoderDecoderConfig(object):
     def __init__(self, **kwargs):
+        # Retnet only
+        self.decoder_value_embed_dim = kwargs.pop("decoder_value_embed_dim", 768)
+        self.decoder_retention_heads = kwargs.pop("decoder_retention_heads", 32)
+        self.recurrent_chunk_size = kwargs.pop("recurrent_chunk_size", 1)
+        self.chunkwise_recurrent = kwargs.pop("chunkwise_recurrent", False)
+        
         self.encoder_embed_dim = kwargs.pop("encoder_embed_dim", 768)
         self.encoder_attention_heads = kwargs.pop("encoder_attention_heads", 12)
         self.encoder_ffn_embed_dim = kwargs.pop("encoder_ffn_embed_dim", 3072)

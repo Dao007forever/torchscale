@@ -25,7 +25,7 @@ from torch import Tensor
 from torchscale.architecture.config import DecoderConfig, EncoderConfig, EncoderDecoderConfig
 from torchscale.architecture.encoder import Encoder
 
-from .language_modeling import LMDecoder as MTDecoder
+from .retnet import LMDecoder as MTDecoder
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +203,7 @@ class TranslationModel(FairseqEncoderDecoderModel):
         if getattr(args, "max_target_positions", None) is None:
             args.max_target_positions = DEFAULT_MAX_TARGET_POSITIONS
 
-        args.ddp_rank = distributed_utils.get_data_parallel_rank()
+        #args.ddp_rank = distributed_utils.get_data_parallel_rank()
 
         src_dict, tgt_dict = task.source_dictionary, task.target_dictionary
 
@@ -329,7 +329,7 @@ class TranslationModel(FairseqEncoderDecoderModel):
         return MTDecoder(
             config,
             embed_tokens,
-            embed_positions,
+            #embed_positions, retnet
             output_projection,
             is_encoder_decoder=True,
             dictionary=dictionary,

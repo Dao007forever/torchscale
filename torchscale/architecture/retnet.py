@@ -74,6 +74,7 @@ class DecoderLayer(nn.Module):
         args,
         depth,
         is_moe_layer=False,
+        is_encoder_decoder=False
     ):
         super().__init__()
         self.args = args
@@ -93,6 +94,13 @@ class DecoderLayer(nn.Module):
         self.normalize_before = args.decoder_normalize_before
 
         self.retention_layer_norm = RMSNorm(self.embed_dim, eps=args.layernorm_eps)
+
+        if not is_encoder_decoder:
+            self.encoder_attn = None
+            self.encoder_attn_layer_norm = None
+        else:
+            self.encoder_attn = self.build_encoder_attention(self.embed_dim, args)
+            self.encoder_attn_layer_norm = RMSNorm(self.embed_dim, eps=args.layernorm_eps)
 
         self.is_moe_layer = is_moe_layer
         self.ffn_dim = args.decoder_ffn_embed_dim
@@ -148,6 +156,14 @@ class DecoderLayer(nn.Module):
             args.decoder_retention_heads,
         )
 
+    def build_encoder_attention(self, embed_dim, args):
+        return MultiScaleRetention(
+            args,
+            embed_dim,
+            args.decoder_value_embed_dim,
+            args.decoder_retention_heads
+        )
+
     def residual_connection(self, x, residual):
         return residual * self.alpha + x
 
@@ -157,6 +173,7 @@ class DecoderLayer(nn.Module):
         incremental_state=None,
         chunkwise_recurrent=False,
         retention_rel_pos=None,
+        encoder_out=None,
     ):
         residual = x
         if self.normalize_before:
@@ -176,6 +193,24 @@ class DecoderLayer(nn.Module):
         x = self.residual_connection(x, residual)
         if not self.normalize_before:
             x = self.retention_layer_norm(x)
+
+        if self.encoder_attn is not None and encoder_out is not None:
+            residual = x
+            if self.normalize_before:
+                x = self.encoder_attn_layer_norm(x)
+            
+            x = self.encoder_attn._forward(
+                query=x,
+                key=encoder_out,
+                value=encoder_out,
+                incremental_state=incremental_state,
+                rel_pos=retention_rel_pos,
+                chunkwise_recurrent=chunkwise_recurrent
+            )
+
+            x = self.residual_connection(x, residual)
+            if not self.normalize_before:
+                x = self.encoder_attn_layer_norm(x)
 
         residual = x
         if self.normalize_before:
@@ -202,6 +237,7 @@ class RetNetDecoder(nn.Module):
         args,
         embed_tokens=None,
         output_projection=None,
+        is_encoder_decoder=False,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -239,6 +275,7 @@ class RetNetDecoder(nn.Module):
                     args,
                     depth=i,
                     is_moe_layer=is_moe_layer,
+                    is_encoder_decoder=is_encoder_decoder
                 )
             )
 
@@ -286,12 +323,14 @@ class RetNetDecoder(nn.Module):
         return output_projection
 
     def build_decoder_layer(
-        self, args, depth, is_moe_layer=False
+        self, args, depth, is_moe_layer=False,
+        is_encoder_decoder=False
     ):
         layer = DecoderLayer(
             args,
             depth,
             is_moe_layer=is_moe_layer,
+            is_encoder_decoder=is_encoder_decoder
         )
         if args.checkpoint_activations:
             layer = checkpoint_wrapper(layer)
