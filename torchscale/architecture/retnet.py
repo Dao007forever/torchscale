@@ -204,7 +204,7 @@ class DecoderLayer(nn.Module):
                 key=encoder_out["encoder_out"],
                 value=encoder_out["encoder_out"],
                 incremental_state=incremental_state,
-                rel_pos=retention_rel_pos,
+                rel_pos=None, # No relative positional encodings for cross attention
                 chunkwise_recurrent=chunkwise_recurrent
             )
 
