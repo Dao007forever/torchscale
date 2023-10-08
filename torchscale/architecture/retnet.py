@@ -201,8 +201,8 @@ class DecoderLayer(nn.Module):
             
             x = self.encoder_attn._forward(
                 query=x,
-                key=encoder_out,
-                value=encoder_out,
+                key=encoder_out["encoder_out"],
+                value=encoder_out["encoder_out"],
                 incremental_state=incremental_state,
                 rel_pos=retention_rel_pos,
                 chunkwise_recurrent=chunkwise_recurrent
