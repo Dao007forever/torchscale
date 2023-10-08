@@ -405,7 +405,6 @@ class RetNetDecoder(nn.Module):
                     
             x, l_aux_i = layer(
                 x,
-                encoder_out,
                 incremental_state[idx] if incremental_state is not None else None,
                 retention_rel_pos=retention_rel_pos,
                 chunkwise_recurrent=self.chunkwise_recurrent,
