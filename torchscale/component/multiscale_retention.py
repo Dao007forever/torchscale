@@ -190,6 +190,8 @@ class MultiScaleRetention(nn.Module):
     ):
         bsz, tgt_len, _ = query.size()
         src_len = tgt_len
+
+        inner_mask = None
         if rel_pos is not None:
             (sin, cos), inner_mask = rel_pos
 
