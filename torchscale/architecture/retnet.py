@@ -371,6 +371,7 @@ class RetNetDecoder(nn.Module):
         features_only=False,
         return_all_hiddens=False,
         token_embeddings=None,
+        encoder_out=None,
         **kwargs
     ):
         # embed tokens
@@ -404,9 +405,11 @@ class RetNetDecoder(nn.Module):
                     
             x, l_aux_i = layer(
                 x,
+                encoder_out,
                 incremental_state[idx] if incremental_state is not None else None,
                 retention_rel_pos=retention_rel_pos,
                 chunkwise_recurrent=self.chunkwise_recurrent,
+                encoder_out=encoder_out,
             )
             l_aux.append(l_aux_i)
             inner_states.append(x)
