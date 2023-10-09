@@ -203,7 +203,7 @@ class DecoderLayer(nn.Module):
                 query=x,
                 key=encoder_out["encoder_out"],
                 value=encoder_out["encoder_out"],
-                incremental_state=incremental_state,
+                incremental_state=None,
                 rel_pos=None, # No relative positional encodings for cross attention
                 chunkwise_recurrent=chunkwise_recurrent
             )

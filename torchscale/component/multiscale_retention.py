@@ -94,24 +94,29 @@ class MultiScaleRetention(nn.Module):
         incremental_state
     ):
         bsz = v.size(0)
+        # bsz, num_heads, len, head_dim
+        _, _, qlen, _ = qr.size()
+        _, _, kvlen, _ = kr.size()
 
         if decay is None:
-            _, qlen, _ = qr.size()
-            _, klen, _ = kr.size()
-            decay = torch.ones((qlen, klen))
-
-        v = v.view(bsz, self.num_heads, self.head_dim, 1)
-        kv = kr * v
-        if "prev_key_value" in incremental_state:
-            prev_kv = incremental_state["prev_key_value"]
-            prev_scale = incremental_state["scale"]
-            scale = prev_scale * decay + 1
-            kv = prev_kv * (prev_scale.sqrt() * decay / scale.sqrt()).view(self.num_heads, 1, 1) + kv / scale.sqrt().view(self.num_heads, 1, 1)
-            # kv = prev_kv * decay.view(self.num_heads, 1, 1) + kv
-        else:
+            decay = torch.ones((qlen, kvlen))
             scale = torch.ones_like(decay)
+            v = v.view(bsz, kvlen, self.num_heads, self.head_dim).transpose(1,2)
+            kv = kr @ v.transpose(-1, -2)
+        else:
+            v = v.view(bsz, self.num_heads, self.head_dim, 1)
+            kv = kr * v
+            if "prev_key_value" in incremental_state:
+                prev_kv = incremental_state["prev_key_value"]
+                prev_scale = incremental_state["scale"]
+                scale = prev_scale * decay + 1
+                kv = prev_kv * (prev_scale.sqrt() * decay / scale.sqrt()).view(self.num_heads, 1, 1) + kv / scale.sqrt().view(self.num_heads, 1, 1)
+                # kv = prev_kv * decay.view(self.num_heads, 1, 1) + kv
+            else:
+                scale = torch.ones_like(decay)
 
-        incremental_state["prev_key_value"] = kv
+            incremental_state["prev_key_value"] = kv
+
         incremental_state["scale"] = scale
 
         output = torch.sum(qr * kv, dim=3)
