@@ -382,8 +382,9 @@ class RetNetDecoder(nn.Module):
             prev_output_tokens, token_embeddings, incremental_state
         )
         is_first_step = self.is_first_step(incremental_state)
-        print(f"XCXC is_first_step {is_first_step}, incremental_state {len(incremental_state)}")
-
+        # print(f"XCXC is_first_step {is_first_step}")
+        # if incremental_state is not None:
+        #     print(f"XCXC incremental_state {len(incremental_state)}")
         
         if self.chunkwise_recurrent and prev_output_tokens.size(1) % self.recurrent_chunk_size != 0:
             padding_len = self.recurrent_chunk_size - prev_output_tokens.size(1) % self.recurrent_chunk_size
