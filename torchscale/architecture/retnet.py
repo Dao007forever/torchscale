@@ -363,6 +363,7 @@ class RetNetDecoder(nn.Module):
     def is_first_step(self, incremental_state):
         if incremental_state is None:
             return False
+        # TODO: This is required for inference, but will break training?
         if len(incremental_state) == 0:
             return True
         return incremental_state.get("is_first_step", False)
