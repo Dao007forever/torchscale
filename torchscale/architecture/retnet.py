@@ -203,6 +203,7 @@ class DecoderLayer(nn.Module):
                 query=x,
                 key=encoder_out["encoder_out"],
                 value=encoder_out["encoder_out"],
+                # TODO: Make sure to update this to compute kv of encoder out once and not multiple times.
                 incremental_state=None,
                 rel_pos=None, # No relative positional encodings for cross attention
                 chunkwise_recurrent=chunkwise_recurrent
@@ -362,6 +363,8 @@ class RetNetDecoder(nn.Module):
     def is_first_step(self, incremental_state):
         if incremental_state is None:
             return False
+        if len(incremental_state) == 0:
+            return True
         return incremental_state.get("is_first_step", False)
 
     def forward(
@@ -379,6 +382,7 @@ class RetNetDecoder(nn.Module):
             prev_output_tokens, token_embeddings, incremental_state
         )
         is_first_step = self.is_first_step(incremental_state)
+        print(f"XCXC is_first_step {is_first_step}, incremental_state {len(incremental_state)}")
 
         
         if self.chunkwise_recurrent and prev_output_tokens.size(1) % self.recurrent_chunk_size != 0:
@@ -402,7 +406,7 @@ class RetNetDecoder(nn.Module):
             else:
                 if idx not in incremental_state:
                     incremental_state[idx] = {}
-                    
+
             x, l_aux_i = layer(
                 x,
                 incremental_state[idx] if incremental_state is not None else None,

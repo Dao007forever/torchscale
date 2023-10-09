@@ -99,6 +99,7 @@ class MultiScaleRetention(nn.Module):
         _, _, kvlen, _ = kr.size()
 
         if decay is None:
+            print(f"XCXC SHOULD NOT HAPPENE decay is None")
             decay = torch.ones((qlen, kvlen))
             scale = torch.ones_like(decay)
             v = v.view(bsz, kvlen, self.num_heads, self.head_dim).transpose(1,2)
@@ -113,7 +114,9 @@ class MultiScaleRetention(nn.Module):
                 kv = prev_kv * (prev_scale.sqrt() * decay / scale.sqrt()).view(self.num_heads, 1, 1) + kv / scale.sqrt().view(self.num_heads, 1, 1)
                 # kv = prev_kv * decay.view(self.num_heads, 1, 1) + kv
             else:
-                scale = torch.ones_like(decay)
+                # decay is of shape (#num_heads, 1, 1) because slen = 1 when calling RetNetRelPos.
+                # Need to squeeze() to get (#num_heads)
+                scale = torch.ones_like(decay).squeeze()
 
             incremental_state["prev_key_value"] = kv
 
