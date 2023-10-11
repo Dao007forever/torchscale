@@ -79,7 +79,8 @@ class MultiScaleRetention(nn.Module):
         vr = v.view(bsz, tgt_len, self.num_heads, self.head_dim).transpose(1, 2)
 
         qk_mat = qr @ kr.transpose(-1, -2) # bsz * m * tgt_len * tgt_len
-        qk_mat = qk_mat * mask
+        if mask is not None:
+            qk_mat = qk_mat * mask
         # invariant after normalization
         qk_mat = qk_mat / qk_mat.detach().sum(dim=-1, keepdim=True).abs().clamp(min=1)
         output = torch.matmul(qk_mat, vr)
@@ -93,19 +94,32 @@ class MultiScaleRetention(nn.Module):
         incremental_state
     ):
         bsz = v.size(0)
+        # bsz, num_heads, len, head_dim
+        _, _, qlen, _ = qr.size()
+        _, _, kvlen, _ = kr.size()
 
-        v = v.view(bsz, self.num_heads, self.head_dim, 1)
-        kv = kr * v
-        if "prev_key_value" in incremental_state:
-            prev_kv = incremental_state["prev_key_value"]
-            prev_scale = incremental_state["scale"]
-            scale = prev_scale * decay + 1
-            kv = prev_kv * (prev_scale.sqrt() * decay / scale.sqrt()).view(self.num_heads, 1, 1) + kv / scale.sqrt().view(self.num_heads, 1, 1)
-            # kv = prev_kv * decay.view(self.num_heads, 1, 1) + kv
-        else:
+        if decay is None:
+            print(f"XCXC SHOULD NOT HAPPENE decay is None")
+            decay = torch.ones((qlen, kvlen))
             scale = torch.ones_like(decay)
+            v = v.view(bsz, kvlen, self.num_heads, self.head_dim).transpose(1,2)
+            kv = kr @ v.transpose(-1, -2)
+        else:
+            v = v.view(bsz, self.num_heads, self.head_dim, 1)
+            kv = kr * v
+            if "prev_key_value" in incremental_state:
+                prev_kv = incremental_state["prev_key_value"]
+                prev_scale = incremental_state["scale"]
+                scale = prev_scale * decay + 1
+                kv = prev_kv * (prev_scale.sqrt() * decay / scale.sqrt()).view(self.num_heads, 1, 1) + kv / scale.sqrt().view(self.num_heads, 1, 1)
+                # kv = prev_kv * decay.view(self.num_heads, 1, 1) + kv
+            else:
+                # decay is of shape (#num_heads, 1, 1) because slen = 1 when calling RetNetRelPos.
+                # Need to squeeze() to get (#num_heads)
+                scale = torch.ones_like(decay).squeeze()
 
-        incremental_state["prev_key_value"] = kv
+            incremental_state["prev_key_value"] = kv
+
         incremental_state["scale"] = scale
 
         output = torch.sum(qr * kv, dim=3)
@@ -171,20 +185,42 @@ class MultiScaleRetention(nn.Module):
         chunkwise_recurrent=False,
         incremental_state=None
     ):
-        bsz, tgt_len, _ = x.size()
-        (sin, cos), inner_mask = rel_pos
+        return self._forward(x, x, x, rel_pos, chunkwise_recurrent, incremental_state)
+    
+    def _forward(
+        self,
+        query,
+        key,
+        value,
+        rel_pos,
+        chunkwise_recurrent=False,
+        incremental_state=None
+    ):
+        bsz, tgt_len, _ = query.size()
+        src_len = tgt_len
 
-        q = self.q_proj(x)
-        k = self.k_proj(x)
-        v = self.v_proj(x)
-        g = self.g_proj(x)
+        inner_mask = None
+        if rel_pos is not None:
+            (sin, cos), inner_mask = rel_pos
+
+        key_bsz, src_len, _ = key.size()
+        assert key_bsz == bsz, f"{query.size(), key.size()}"
+
+        q = self.q_proj(query)
+        k = self.k_proj(key)
+        v = self.v_proj(value)
+        g = self.g_proj(query)
 
         k *= self.scaling
         q = q.view(bsz, tgt_len, self.num_heads, self.key_dim).transpose(1, 2)
-        k = k.view(bsz, tgt_len, self.num_heads, self.key_dim).transpose(1, 2)
+        k = k.view(bsz, src_len, self.num_heads, self.key_dim).transpose(1, 2)
 
-        qr = theta_shift(q, sin, cos)
-        kr = theta_shift(k, sin, cos)
+        if rel_pos is not None:
+            qr = theta_shift(q, sin, cos)
+            kr = theta_shift(k, sin, cos)
+        else:
+            qr = q
+            kr = k
 
         if incremental_state is not None:
             output = self.recurrent_forward(qr, kr, v, inner_mask, incremental_state)
