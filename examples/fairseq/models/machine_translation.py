@@ -321,7 +321,7 @@ class TranslationModel(FairseqEncoderDecoderModel):
 
     @classmethod
     def build_decoder(
-        cls, args, embed_tokens, embed_positions, output_projection, dictionary
+        cls, args, embed_tokens, decoder_embed_positions, output_projection, dictionary
     ):
         config = EncoderDecoderConfig()
         config.override(args)
@@ -332,7 +332,8 @@ class TranslationModel(FairseqEncoderDecoderModel):
             #embed_positions, retnet
             output_projection,
             is_encoder_decoder=True,
-            embed_positions=embed_positions,
+            # In retnet, this embed_positions is only used on encoder_out
+            encoder_embed_positions=decoder_embed_positions,
             dictionary=dictionary,
         )
 
