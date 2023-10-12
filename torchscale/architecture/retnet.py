@@ -389,7 +389,6 @@ class RetNetDecoder(nn.Module):
             positions = self.encoder_embed_positions(
                  torch.zeros((bsz, kv_len), device=x.device), incremental_state=None
             )
-            print(f"XCXC kv {encoder_out['encoder_out'].size()} position {positions.size()}")
             encoder_out["encoder_out"] += positions
         
         is_first_step = self.is_first_step(incremental_state)
