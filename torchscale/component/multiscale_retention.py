@@ -225,7 +225,7 @@ class MultiScaleRetention(nn.Module):
             kr = k
             if self.embed_positions is not None:
                 positions = self.embed_positions(
-                    torch.zeroes((bsz, src_len)), incremental_state=None
+                    torch.zeros((bsz, src_len)), incremental_state=None
                 )
                 kr += positions
 
