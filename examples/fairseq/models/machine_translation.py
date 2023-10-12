@@ -332,6 +332,7 @@ class TranslationModel(FairseqEncoderDecoderModel):
             #embed_positions, retnet
             output_projection,
             is_encoder_decoder=True,
+            embed_positions=embed_positions,
             dictionary=dictionary,
         )
 

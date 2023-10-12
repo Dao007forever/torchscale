@@ -44,6 +44,7 @@ class MultiScaleRetention(nn.Module):
         value_dim,
         num_heads,
         gate_fn="swish",
+        embed_positions=None,
     ):
         super().__init__()
         self.args = args
@@ -64,6 +65,7 @@ class MultiScaleRetention(nn.Module):
         self.out_proj = MultiwayWrapper(args, nn.Linear(value_dim, embed_dim, bias=False))
 
         self.group_norm = MultiwayWrapper(args, RMSNorm(self.head_dim, eps=args.layernorm_eps, elementwise_affine=False))
+        self.embed_positions = embed_positions
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -221,6 +223,11 @@ class MultiScaleRetention(nn.Module):
         else:
             qr = q
             kr = k
+            if self.embed_positions is not None:
+                positions = self.embed_positions(
+                    torch.zeroes((bsz, src_len)), incremental_state=None
+                )
+                kr += positions
 
         if incremental_state is not None:
             output = self.recurrent_forward(qr, kr, v, inner_mask, incremental_state)

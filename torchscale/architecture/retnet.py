@@ -74,7 +74,8 @@ class DecoderLayer(nn.Module):
         args,
         depth,
         is_moe_layer=False,
-        is_encoder_decoder=False
+        is_encoder_decoder=False,
+        embed_positions=None
     ):
         super().__init__()
         self.args = args
@@ -99,7 +100,7 @@ class DecoderLayer(nn.Module):
             self.encoder_attn = None
             self.encoder_attn_layer_norm = None
         else:
-            self.encoder_attn = self.build_encoder_attention(self.embed_dim, args)
+            self.encoder_attn = self.build_encoder_attention(self.embed_dim, embed_positions, args)
             self.encoder_attn_layer_norm = RMSNorm(self.embed_dim, eps=args.layernorm_eps)
 
         self.is_moe_layer = is_moe_layer
@@ -156,12 +157,13 @@ class DecoderLayer(nn.Module):
             args.decoder_retention_heads,
         )
 
-    def build_encoder_attention(self, embed_dim, args):
+    def build_encoder_attention(self, embed_dim, embed_positions, args):
         return MultiScaleRetention(
             args,
             embed_dim,
             args.decoder_value_embed_dim,
-            args.decoder_retention_heads
+            args.decoder_retention_heads,
+            embed_positions=embed_positions,
         )
 
     def residual_connection(self, x, residual):
@@ -238,6 +240,7 @@ class RetNetDecoder(nn.Module):
         args,
         embed_tokens=None,
         output_projection=None,
+        embed_positions=None,
         is_encoder_decoder=False,
         **kwargs
     ):
@@ -276,7 +279,8 @@ class RetNetDecoder(nn.Module):
                     args,
                     depth=i,
                     is_moe_layer=is_moe_layer,
-                    is_encoder_decoder=is_encoder_decoder
+                    is_encoder_decoder=is_encoder_decoder,
+                    embed_positions=embed_positions
                 )
             )
 
@@ -325,13 +329,15 @@ class RetNetDecoder(nn.Module):
 
     def build_decoder_layer(
         self, args, depth, is_moe_layer=False,
-        is_encoder_decoder=False
+        is_encoder_decoder=False,
+        embed_positions=None
     ):
         layer = DecoderLayer(
             args,
             depth,
             is_moe_layer=is_moe_layer,
-            is_encoder_decoder=is_encoder_decoder
+            is_encoder_decoder=is_encoder_decoder,
+            embed_positions=embed_positions
         )
         if args.checkpoint_activations:
             layer = checkpoint_wrapper(layer)
