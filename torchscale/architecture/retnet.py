@@ -385,11 +385,13 @@ class RetNetDecoder(nn.Module):
             prev_output_tokens, token_embeddings, incremental_state
         )
         if encoder_out is not None and self.encoder_embed_positions is not None:
-            bsz, kv_len, _ = encoder_out["encoder_out"].size() 
+            bsz, kv_len, _ = encoder_out["encoder_out"].size()
             positions = self.encoder_embed_positions(
                  torch.zeros((bsz, kv_len), device=x.device), incremental_state=None
             )
-            encoder_out["encoder_out"] += positions
+            # Do not mutate encoder_out["encoder_out"], as it will be passed multiple times during
+            # generation.
+            encoder_out_with_pos = encoder_out["encoder_out"] + positions
         
         is_first_step = self.is_first_step(incremental_state)
         # print(f"XCXC is_first_step {is_first_step}")
@@ -423,7 +425,7 @@ class RetNetDecoder(nn.Module):
                 incremental_state[idx] if incremental_state is not None else None,
                 retention_rel_pos=retention_rel_pos,
                 chunkwise_recurrent=self.chunkwise_recurrent,
-                encoder_out=encoder_out["encoder_out"],
+                encoder_out=encoder_out_with_pos,
             )
             l_aux.append(l_aux_i)
             inner_states.append(x)
