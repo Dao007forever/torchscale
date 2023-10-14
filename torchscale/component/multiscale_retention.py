@@ -1,6 +1,10 @@
 # Copyright (c) 2022 Microsoft
 # Licensed under The MIT License [see LICENSE for details]
 
+try:
+    from apex.normalization import FusedLayerNorm as LayerNorm
+except ModuleNotFoundError:
+    from torch.nn import LayerNorm
 
 import torch
 import torch.nn.functional as F
@@ -56,14 +60,14 @@ class MultiScaleRetention(nn.Module):
         
         self.gate_fn = get_activation_fn(activation=str(gate_fn))
 
-        self.q_proj = MultiwayWrapper(args, nn.Linear(embed_dim, embed_dim, bias=False))
-        self.k_proj = MultiwayWrapper(args, nn.Linear(embed_dim, embed_dim, bias=False))
+        self.q_proj = MultiwayWrapper(args, nn.Linear(embed_dim, value_dim, bias=False))
+        self.k_proj = MultiwayWrapper(args, nn.Linear(embed_dim, value_dim, bias=False))
         self.v_proj = MultiwayWrapper(args, nn.Linear(embed_dim, value_dim, bias=False))
         self.g_proj = MultiwayWrapper(args, nn.Linear(embed_dim, value_dim, bias=False))
         
         self.out_proj = MultiwayWrapper(args, nn.Linear(value_dim, embed_dim, bias=False))
 
-        self.group_norm = MultiwayWrapper(args, RMSNorm(self.head_dim, eps=args.layernorm_eps, elementwise_affine=False))
+        self.group_norm = MultiwayWrapper(args, LayerNorm(self.head_dim, eps=args.layernorm_eps))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -212,8 +216,8 @@ class MultiScaleRetention(nn.Module):
         g = self.g_proj(query)
 
         k *= self.scaling
-        q = q.view(bsz, tgt_len, self.num_heads, self.key_dim).transpose(1, 2)
-        k = k.view(bsz, src_len, self.num_heads, self.key_dim).transpose(1, 2)
+        q = q.view(bsz, tgt_len, self.num_heads, self.head_dim).transpose(1, 2)
+        k = k.view(bsz, src_len, self.num_heads, self.head_dim).transpose(1, 2)
 
         if rel_pos is not None:
             qr = theta_shift(q, sin, cos)

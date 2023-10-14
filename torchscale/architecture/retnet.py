@@ -9,6 +9,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from fairscale.nn import checkpoint_wrapper, wrap
 
+try:
+    from apex.normalization import FusedLayerNorm as LayerNorm
+except ModuleNotFoundError:
+    from torch.nn import LayerNorm
+from torchscale.component.multiway_network import MultiwayWrapper
+from torchscale.component.feedforward_network import FeedForwardNetwork
+
 from torchscale.architecture.utils import init_bert_params
 from torchscale.component.droppath import DropPath
 from torchscale.component.feedforward_network import make_experts
@@ -22,7 +29,7 @@ from torchscale.component.rms_norm import RMSNorm
 class RetNetRelPos(nn.Module):
     def __init__(self, args):
         super().__init__()
-        angle = 1.0 / (10000 ** torch.linspace(0, 1, args.decoder_embed_dim // args.decoder_retention_heads // 2))
+        angle = 1.0 / (10000 ** torch.linspace(0, 1, args.decoder_value_embed_dim // args.decoder_retention_heads // 2))
         angle = angle.unsqueeze(-1).repeat(1, 2).flatten()
         decay = torch.log(1 - 2 ** (-5 - torch.arange(args.decoder_retention_heads, dtype=torch.float)))
         self.register_buffer("angle", angle)
@@ -93,14 +100,14 @@ class DecoderLayer(nn.Module):
 
         self.normalize_before = args.decoder_normalize_before
 
-        self.retention_layer_norm = RMSNorm(self.embed_dim, eps=args.layernorm_eps)
+        self.retention_layer_norm = MultiwayWrapper(args, LayerNorm(self.embed_dim, eps=args.layernorm_eps))
 
         if not is_encoder_decoder:
             self.encoder_attn = None
             self.encoder_attn_layer_norm = None
         else:
             self.encoder_attn = self.build_encoder_attention(self.embed_dim, args)
-            self.encoder_attn_layer_norm = RMSNorm(self.embed_dim, eps=args.layernorm_eps)
+            self.encoder_attn_layer_norm = MultiwayWrapper(args, LayerNorm(self.embed_dim, eps=args.layernorm_eps))
 
         self.is_moe_layer = is_moe_layer
         self.ffn_dim = args.decoder_ffn_embed_dim
@@ -132,7 +139,7 @@ class DecoderLayer(nn.Module):
             experts = make_experts(args, self.embed_dim, self.ffn_dim)
             self.moe_layer = MOELayer(gate, experts, args)
 
-        self.final_layer_norm = RMSNorm(self.embed_dim, eps=args.layernorm_eps)
+        self.final_layer_norm = MultiwayWrapper(args, LayerNorm(self.embed_dim, eps=args.layernorm_eps))
 
         if args.deepnorm:
             self.alpha = math.pow(2.0 * args.decoder_layers, 0.25)
@@ -140,12 +147,23 @@ class DecoderLayer(nn.Module):
             self.alpha = 1.0
 
     def build_ffn(self, embed_dim, args):
+        """
         return GLU(
             embed_dim,
             self.ffn_dim,
             args.activation_fn,
             args.dropout,
             args.activation_dropout,
+        )
+        """
+        return FeedForwardNetwork(
+            embed_dim,
+            self.ffn_dim,
+            args.activation_fn,
+            args.dropout,
+            args.activation_dropout,
+            args.layernorm_eps,
+            args.subln,
         )
 
     def build_retention(self, embed_dim, args):
@@ -264,7 +282,7 @@ class RetNetDecoder(nn.Module):
             self.output_projection = output_projection
 
         if args.layernorm_embedding:
-            self.layernorm_embedding = RMSNorm(embed_dim, eps=args.layernorm_eps)
+            self.layernorm_embedding = MultiwayWrapper(args, LayerNorm(self.embed_dim, eps=args.layernorm_eps))
         else:
             self.layernorm_embedding = None
 
@@ -285,7 +303,7 @@ class RetNetDecoder(nn.Module):
         self.num_layers = len(self.layers)
 
         if args.decoder_normalize_before:
-            self.layer_norm = RMSNorm(embed_dim, eps=args.layernorm_eps)
+            self.layer_norm = MultiwayWrapper(args, LayerNorm(self.embed_dim, eps=args.layernorm_eps))
         else:
             self.layer_norm = None
 
