@@ -1,6 +1,7 @@
 # Copyright (c) 2022 Microsoft
 # Licensed under The MIT License [see LICENSE for details]
-
+import traceback
+import sys
 try:
     from apex.normalization import FusedLayerNorm as LayerNorm
 except ModuleNotFoundError:
@@ -68,6 +69,7 @@ class MultiScaleRetention(nn.Module):
         self.out_proj = MultiwayWrapper(args, nn.Linear(value_dim, embed_dim, bias=False))
 
         self.group_norm = MultiwayWrapper(args, LayerNorm(self.head_dim, eps=args.layernorm_eps))
+
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -85,10 +87,11 @@ class MultiScaleRetention(nn.Module):
         qk_mat = qr @ kr.transpose(-1, -2) # bsz * m * tgt_len * tgt_len
         if mask is not None:
             qk_mat = qk_mat * mask
+
         # invariant after normalization
         qk_mat = qk_mat / qk_mat.detach().sum(dim=-1, keepdim=True).abs().clamp(min=1)
-        output = torch.matmul(qk_mat, vr)
-        output = output.transpose(1, 2)
+        output = torch.matmul(qk_mat, vr) # bsz * num_heads * tgt_len * head_dim
+        output = output.transpose(1, 2) # bsz * tgt_len * num_heads * head_dim
         return output
 
     def recurrent_forward(
@@ -103,7 +106,7 @@ class MultiScaleRetention(nn.Module):
         _, _, kvlen, _ = kr.size()
 
         if decay is None:
-            print(f"XCXC SHOULD NOT HAPPENE decay is None")
+            print(f"XCXC SHOULD NOT HAPPEN decay is None")
             decay = torch.ones((qlen, kvlen))
             scale = torch.ones_like(decay)
             v = v.view(bsz, kvlen, self.num_heads, self.head_dim).transpose(1,2)
@@ -187,7 +190,7 @@ class MultiScaleRetention(nn.Module):
         x,
         rel_pos,
         chunkwise_recurrent=False,
-        incremental_state=None
+        incremental_state=None,
     ):
         return self._forward(x, x, x, rel_pos, chunkwise_recurrent, incremental_state)
     
@@ -198,7 +201,8 @@ class MultiScaleRetention(nn.Module):
         value,
         rel_pos,
         chunkwise_recurrent=False,
-        incremental_state=None
+        incremental_state=None,
+        key_padding_mask=None,
     ):
         bsz, tgt_len, _ = query.size()
         src_len = tgt_len
@@ -213,7 +217,19 @@ class MultiScaleRetention(nn.Module):
         q = self.q_proj(query)
         k = self.k_proj(key)
         v = self.v_proj(value)
-        g = self.g_proj(query)
+        g = self.g_proj(query) # bsz * tgt_len * value_dim
+
+        if key_padding_mask is not None:
+            #print(f"XCXC PREPROJ {value[0][0:5][0:128]}")
+            #key_padding_mask: bsz * src_len
+            k = k.masked_fill(
+                key_padding_mask[:, :, None].to(torch.bool),
+                float(0.),
+            )
+            v = v.masked_fill(
+                key_padding_mask[:, :, None].to(torch.bool),
+                float(0.),
+            )
 
         k *= self.scaling
         q = q.view(bsz, tgt_len, self.num_heads, self.head_dim).transpose(1, 2)
@@ -223,7 +239,9 @@ class MultiScaleRetention(nn.Module):
             qr = theta_shift(q, sin, cos)
             kr = theta_shift(k, sin, cos)
         else:
+            # TODO: Still need to shift q, so that we have different values for the same word in query?
             qr = q
+            # No need to shift k.
             kr = k
 
         if incremental_state is not None:
@@ -232,11 +250,11 @@ class MultiScaleRetention(nn.Module):
             output = self.chunk_recurrent_forward(qr, kr, v, inner_mask)
         else:
             output = self.parallel_forward(qr, kr, v, inner_mask)
-        
+
+        # output shape: bsz * tgt_len * num_heads * head_dim
         output = self.group_norm(output).reshape(bsz, tgt_len, self.head_dim * self.num_heads)
 
         output = self.gate_fn(g) * output
-
         output = self.out_proj(output)
 
         return output

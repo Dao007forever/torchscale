@@ -108,6 +108,9 @@ class DecoderLayer(nn.Module):
         else:
             self.encoder_attn = self.build_encoder_attention(self.embed_dim, args)
             self.encoder_attn_layer_norm = MultiwayWrapper(args, LayerNorm(self.embed_dim, eps=args.layernorm_eps))
+            # if self.normalize_before:
+            #     # SubLN paper doesn't do it.
+            #     self.encoder_final_layer_norm = MultiwayWrapper(args, LayerNorm(args.decoder_value_embed_dim, eps=args.layernorm_eps))
 
         self.is_moe_layer = is_moe_layer
         self.ffn_dim = args.decoder_ffn_embed_dim
@@ -192,6 +195,7 @@ class DecoderLayer(nn.Module):
         chunkwise_recurrent=False,
         retention_rel_pos=None,
         encoder_out=None,
+        encoder_padding_mask=None,
     ):
         residual = x
         if self.normalize_before:
@@ -216,20 +220,34 @@ class DecoderLayer(nn.Module):
             residual = x
             if self.normalize_before:
                 x = self.encoder_attn_layer_norm(x)
-            
+
             x = self.encoder_attn._forward(
                 query=x,
                 key=encoder_out,
                 value=encoder_out,
                 # TODO: Make sure to update this to compute kv of encoder out once and not multiple times.
                 incremental_state=None,
-                rel_pos=None, # No relative positional encodings for cross attention
-                chunkwise_recurrent=chunkwise_recurrent
+                # Choices:
+                # 1/ No relative positional encodings for cross attention. Assuming query already has positional info from self-retention.
+                # 2/ Rotate query, encoder_out should be encoded by sinusoidal => This looks bad though...
+                # 3/ Sinusoidal for both, only for cross attention.
+                rel_pos=None,
+                chunkwise_recurrent=chunkwise_recurrent,
+                key_padding_mask=encoder_padding_mask
             )
+            x = self.dropout_module(x)
+
+            if self.drop_path is not None:
+                x = self.drop_path(x)
 
             x = self.residual_connection(x, residual)
             if not self.normalize_before:
                 x = self.encoder_attn_layer_norm(x)
+            #else:
+                # Normalize after cross-attention
+                # TODO: Do we need this? SubLN paper doesn't do it.
+                #assert self.encoder_final_layer_norm is not None
+                #x = self.encoder_final_layer_norm(x)
 
         residual = x
         if self.normalize_before:
@@ -404,12 +422,21 @@ class RetNetDecoder(nn.Module):
         )
         if encoder_out is not None and self.encoder_embed_positions is not None:
             bsz, kv_len, _ = encoder_out["encoder_out"].size()
+            encoder_padding_mask = encoder_out['encoder_padding_mask']
+            
+            input = torch.zeros((bsz, kv_len), device=x.device)
+            # Fill in padding_idx into this
+            input = input.masked_fill(
+                encoder_padding_mask,
+                self.encoder_embed_positions.padding_idx)
+            
             positions = self.encoder_embed_positions(
-                 torch.zeros((bsz, kv_len), device=x.device), incremental_state=None
+                 input, incremental_state=None
             )
             # Do not mutate encoder_out["encoder_out"], as it will be passed multiple times during
             # generation.
             encoder_out_with_pos = encoder_out["encoder_out"] + positions
+            #print(f"XCXC {encoder_out_with_pos.size()}, mask {encoder_out['encoder_padding_mask'].size()}, {encoder_out['encoder_padding_mask'][-1]}")
         
         is_first_step = self.is_first_step(incremental_state)
         # print(f"XCXC is_first_step {is_first_step}")
@@ -444,6 +471,7 @@ class RetNetDecoder(nn.Module):
                 retention_rel_pos=retention_rel_pos,
                 chunkwise_recurrent=self.chunkwise_recurrent,
                 encoder_out=encoder_out_with_pos,
+                encoder_padding_mask=encoder_padding_mask,
             )
             l_aux.append(l_aux_i)
             inner_states.append(x)
